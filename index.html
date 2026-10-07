@@ -3,150 +3,98 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تسجيل الدخول</title>
+<title>توليد نموذج 3D</title>
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 <style>
   body {
     margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
     background:#0d0b10; color:#e8e2d8; font-family: system-ui, sans-serif;
+    padding: 24px;
   }
   .card {
     background:#17141b; border:1px solid #3a2f26; border-radius:12px;
-    padding:2rem; width:90%; max-width:380px; text-align:center;
+    padding:2rem; width:100%; max-width:460px;
   }
-  h1 { font-size:1.3rem; margin-bottom:0.5rem; color:#c9a24b; }
-  p { color:#a89f95; font-size:0.9rem; }
-  button, a.btn {
-    display:inline-block; margin-top:1.2rem; padding:0.8rem 1.5rem;
+  h1 { font-size:1.3rem; margin:0 0 0.5rem; color:#c9a24b; text-align:center; }
+  p { color:#a89f95; font-size:0.9rem; text-align:center; }
+  input[type="text"] {
+    width:100%; padding:0.75rem 0.9rem; border-radius:8px; border:1px solid #3a2f26;
+    background:#0d0b10; color:#e8e2d8; font-family:inherit; font-size:0.95rem;
+    margin-top:1rem; box-sizing:border-box;
+  }
+  button {
+    display:block; width:100%; margin-top:0.8rem; padding:0.8rem 1.5rem;
     background:#8b1e2b; color:#fff; border:none; border-radius:8px;
-    font-size:1rem; cursor:pointer; text-decoration:none;
+    font-size:1rem; cursor:pointer;
   }
-  button:hover, a.btn:hover { background:#a5222f; }
-  #error-box { color:#e07a7a; font-size:0.85rem; margin-top:1rem; display:none; }
+  button:hover { background:#a5222f; }
+  button.secondary { background:#3a2f26; }
+  button.secondary:hover { background:#4a3c30; }
+  #result { margin-top:1.2rem; }
+  model-viewer { width:100%; height:280px; border-radius:8px; background:#0d0b10; }
+  #status { color:#a89f95; font-size:0.85rem; margin-top:0.8rem; text-align:center; }
 </style>
 </head>
 <body>
   <div class="card">
-    <div id="login-screen">
-      <h1>تسجيل الدخول</h1>
-      <p>سجّل دخولك عبر حساب Pollinations لاستخدام رصيدك الخاص (Pollen).</p>
-      <button id="login-btn">تسجيل الدخول عبر Pollinations</button>
-    </div>
-    <div id="logged-in-screen" style="display:none">
-      <h1>تم تسجيل الدخول ✅</h1>
-      <p>يمكنك الآن استخدام التطبيق.</p>
-      <a class="btn" href="./chat.html">الدخول إلى التطبيق</a>
-      <br>
-      <button id="logout-btn" style="background:#3a2f26; margin-top:0.8rem;">تسجيل الخروج</button>
-    </div>
-    <div id="error-box"></div>
+    <h1>توليد نموذج ثلاثي الأبعاد</h1>
+    <p>اكتب وصف الشكل، وسيتم توليده باستخدام رصيدك الخاص من Pollen.</p>
+    <input type="text" id="promptInput" placeholder="مثال: صندوق كنز خشبي قديم...">
+    <button id="generateBtn">توليد نموذج 3D</button>
+    <div id="result"></div>
+    <div id="status"></div>
+    <button class="secondary" id="logoutBtn">تسجيل الخروج</button>
   </div>
 
 <script>
-// ضع مفتاح الـ App Key الخاص بك هنا (pk_...)
-const APP_KEY = "pk_a3iQHZipaEhjLqcx";
-const REDIRECT_URI = window.location.origin + window.location.pathname;
-const SCOPE = "openid profile";
+const key = localStorage.getItem('pollinations_api_key');
 
-function base64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-async function sha256(str) {
-  return await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-}
-function randomString(len = 64) {
-  const arr = new Uint8Array(len);
-  crypto.getRandomValues(arr);
-  return base64url(arr.buffer);
-}
-async function discoverEndpoints() {
-  const res = await fetch('https://enter.pollinations.ai/.well-known/oauth-authorization-server');
-  if (!res.ok) throw new Error('تعذر جلب إعدادات المصادقة من Pollinations');
-  return res.json();
-}
-function showError(msg) {
-  const box = document.getElementById('error-box');
-  box.textContent = msg;
-  box.style.display = 'block';
-}
-function showLoggedIn() {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('logged-in-screen').style.display = 'block';
+if (!key) {
+  document.querySelector('.card').innerHTML =
+    '<h1>لم تسجّل الدخول بعد</h1><p>الرجاء تسجيل الدخول أولاً.</p>' +
+    '<a style="display:inline-block;margin-top:1rem;padding:0.8rem 1.5rem;background:#8b1e2b;color:#fff;border-radius:8px;text-decoration:none;" href="./index.html">العودة لتسجيل الدخول</a>';
 }
 
-async function startLogin() {
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function generate3D() {
+  const prompt = document.getElementById('promptInput').value.trim();
+  const resultBox = document.getElementById('result');
+  if (!prompt) { setStatus('اكتب وصف النموذج أولاً.'); return; }
+
+  setStatus('جارِ توليد النموذج (قد يأخذ وقتًا أطول من الصورة أو الصوت)...');
+  resultBox.innerHTML = '';
+
   try {
-    const meta = await discoverEndpoints();
-    const codeVerifier = randomString(64);
-    const codeChallenge = base64url(await sha256(codeVerifier));
-    const state = randomString(24);
-
-    sessionStorage.setItem('pkce_verifier', codeVerifier);
-    sessionStorage.setItem('oauth_state', state);
-
-    const url = new URL(meta.authorization_endpoint);
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('client_id', APP_KEY);
-    url.searchParams.set('redirect_uri', REDIRECT_URI);
-    url.searchParams.set('state', state);
-    url.searchParams.set('code_challenge', codeChallenge);
-    url.searchParams.set('code_challenge_method', 'S256');
-    url.searchParams.set('scope', SCOPE);
-    window.location.href = url.toString();
-  } catch (e) {
-    showError(e.message);
+    const res = await fetch(
+      `https://gen.pollinations.ai/3d/${encodeURIComponent(prompt)}`,
+      { headers: { Authorization: `Bearer ${key}` } }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); }
+      catch { detail = await res.text(); }
+      throw new Error(`HTTP ${res.status} — ${detail}`);
+    }
+    const blob = await res.blob();
+    const viewer = document.createElement('model-viewer');
+    viewer.src = URL.createObjectURL(blob);
+    viewer.setAttribute('camera-controls', '');
+    viewer.setAttribute('auto-rotate', '');
+    resultBox.appendChild(viewer);
+    setStatus('');
+  } catch (err) {
+    setStatus('تعذّر توليد النموذج: ' + err.message);
   }
 }
 
-async function handleCallback(code, state) {
-  const savedState = sessionStorage.getItem('oauth_state');
-  const verifier = sessionStorage.getItem('pkce_verifier');
-  if (!verifier || state !== savedState) {
-    showError('فشل التحقق من الجلسة (state mismatch). حاول تسجيل الدخول من جديد.');
-    return;
-  }
-  try {
-    const meta = await discoverEndpoints();
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: APP_KEY,
-      code_verifier: verifier
-    });
-    const res = await fetch(meta.token_endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
-    if (!res.ok) throw new Error('فشل تبادل رمز التفويض بالمفتاح');
-    const data = await res.json();
-    localStorage.setItem('pollinations_api_key', data.access_token);
-    sessionStorage.removeItem('pkce_verifier');
-    sessionStorage.removeItem('oauth_state');
-    window.history.replaceState({}, document.title, REDIRECT_URI);
-    showLoggedIn();
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-document.getElementById('login-btn').addEventListener('click', startLogin);
-document.getElementById('logout-btn').addEventListener('click', () => {
+document.getElementById('generateBtn')?.addEventListener('click', generate3D);
+document.getElementById('logoutBtn')?.addEventListener('click', () => {
   localStorage.removeItem('pollinations_api_key');
-  location.reload();
+  location.href = './index.html';
 });
-
-(function init() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  const state = params.get('state');
-  if (code && state) {
-    handleCallback(code, state);
-  } else if (localStorage.getItem('pollinations_api_key')) {
-    showLoggedIn();
-  }
-})();
 </script>
 </body>
 </html>
